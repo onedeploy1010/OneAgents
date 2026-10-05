@@ -1,0 +1,29 @@
+# Copy to .dev.vars for local `wrangler dev`. Never commit real secrets.
+# Non-secret vars belong in wrangler.jsonc; this file is for secrets only.
+
+SUPABASE_URL="https://<project-ref>.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="replace-with-service-role-key"
+
+GH_WEBHOOK_SECRET="replace-with-github-webhook-secret"
+GH_API_TOKEN="replace-with-github-personal-access-token"
+TG_WEBHOOK_SECRET="replace-with-telegram-webhook-secret"
+TG_BOT_TOKEN="replace-with-telegram-bot-token"
+TG_DEFAULT_CHAT_ID="replace-with-default-chat-id"
+
+# Google Workspace (one23x.org) — OAuth 2.0 用户授权码流。
+# 组织政策 iam.disableServiceAccountKeyCreation 禁用了 SA key,所以走
+# admin@one23x.org 一次性授权,worker 用 refresh_token 长期代表 admin 调 API。
+# 步骤:
+#   1. GCP Console → APIs & Services → Credentials → Create OAuth client ID(Web application)
+#      Authorized redirect URI = ${GOOGLE_OAUTH_REDIRECT_URI}
+#   2. 启用 Gmail / Calendar / Drive API,OAuth consent screen 加 scope:
+#        https://www.googleapis.com/auth/calendar
+#        https://www.googleapis.com/auth/gmail.send
+#        https://www.googleapis.com/auth/drive.readonly
+#   3. 用 admin@one23x.org 打开授权链接(worker 的 /oauth/google/start),
+#      Google 回调把 code 带到 redirect_uri,worker 换出 refresh_token,
+#      填到 GOOGLE_OAUTH_REFRESH_TOKEN_ADMIN(或自动存 Supabase)
+GOOGLE_OAUTH_CLIENT_ID="replace-with-oauth-client-id"
+GOOGLE_OAUTH_CLIENT_SECRET="replace-with-oauth-client-secret"
+GOOGLE_OAUTH_REDIRECT_URI="https://agents.one23x.org/oauth/google/callback"
+GOOGLE_OAUTH_REFRESH_TOKEN_ADMIN="replace-with-admin-refresh-token"

@@ -1,0 +1,71 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "oneagents-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_ENV": "dev",
+    "APP_NAME": "OneAgents",
+    "APP_TIMEZONE": "Asia/Shanghai",
+    "FINANCE_BASE_UNIT": "U",
+    "EMBEDDING_MODEL": "openai/text-embedding-3-small",
+    "ALERT_ASSET_DAYS": "30",
+    "ALERT_SUBSCRIPTION_DAYS": "14",
+    "GOOGLE_WORKSPACE_DOMAIN": "one23x.org",
+    "GOOGLE_WORKSPACE_ADMIN_EMAIL": "admin@one23x.org"
+  },
+  "triggers": {
+    "crons": [
+      "0 9 * * *",
+      "0 1 * * *",
+      "0 13 * * *",
+      "0 4,7,10 * * *"
+    ]
+  },
+  "routes": [
+    { "pattern": "agents.one23x.org", "custom_domain": true }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "MeetingAgent", "class_name": "MeetingAgent" },
+      { "name": "ProjectOpsAgent", "class_name": "ProjectOpsAgent" },
+      { "name": "FinanceAgent", "class_name": "FinanceAgent" },
+      { "name": "OnboardingAgent", "class_name": "OnboardingAgent" },
+      { "name": "OrchestratorAgent", "class_name": "OrchestratorAgent" },
+      { "name": "KnowledgeAgent", "class_name": "KnowledgeAgent" },
+      { "name": "InfraAgent", "class_name": "InfraAgent" },
+      { "name": "TrainingCoachAgent", "class_name": "TrainingCoachAgent" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "MeetingAgent",
+        "ProjectOpsAgent",
+        "FinanceAgent",
+        "OnboardingAgent"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "OrchestratorAgent",
+        "KnowledgeAgent",
+        "InfraAgent"
+      ]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": [
+        "TrainingCoachAgent"
+      ]
+    }
+  ]
+}

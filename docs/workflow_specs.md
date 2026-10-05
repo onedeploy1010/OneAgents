@@ -1,161 +1,174 @@
 # 工作流规格说明
 
-**作者：Manus AI**  
-**版本：v0.1**  
-**状态：MVP 流程稿**
+**版本:v0.2**
+**状态:引擎已上线(migration 008)**
 
-## 一、总体原则
+## 一、核心原则
 
-本系统的工作流设计，目标不是追求炫目的自动化，而是追求**低出错率、可回溯、可人工接管**。因此所有核心工作流都应采用统一结构：**事件触发、结构化抽取、规则校验、候选结果、人工确认、正式写入、通知回流**。这类结构尤其适合你当前的小团队，因为它既能节约时间，又不会让 Agent 越权。
+OneAgents 的工作流目标**不是炫目的全自动**,而是:**低出错、可回溯、可人工接管、可逐步自动化**。因此所有工作流采用统一的节点语义:
 
-## 二、工作流总览
+```
+触发 → 节点1 → 节点2 → ... → 节点N → 结束
+         │        │
+         │        └─ 每个节点有 executor(agent/ai_platform/tool/webhook/human)
+         │        └─ 每个节点可声明:项目 / 客户 / 记忆命名空间 / 连接器
+         │        └─ 每个节点可要求审批
+         │
+         └─ 完成即通知 superadmin + 相关账号 + Telegram,自动推进下一个节点
+```
 
-| 工作流编号 | 名称 | 触发源 | 结果 |
-| --- | --- | --- | --- |
-| WF-01 | 会议转任务 | 会议纪要 / 录音转写 / 手工输入 | 生成纪要、行动项和任务候选 |
-| WF-02 | GitHub 变更同步 | 提交、PR、Issue、手工更新 | 更新任务状态与项目动态 |
-| WF-03 | 财务流水入账与 U 折算 | 手工录入、账单邮件、订阅续费提醒 | 写入流水并统一折算 |
-| WF-04 | 资产与订阅风险提醒 | 续费时间、监控告警、人工检查 | 生成风险通知与处理建议 |
-| WF-05 | 新人 15 天培训流程 | 新人加入、每日定时、任务完成 | 分配训练任务并记录评分 |
-| WF-06 | 周报 / 日报汇总 | 定时任务 | 生成公司级与项目级摘要 |
-| WF-07 | 客户报价建议 | 项目阶段变化、人工请求 | 输出建议报价区间与理由 |
-| WF-08 | 知识入库与检索增强 | 文档新增、纪要生成、方案更新 | 写入摘要、标签与向量索引 |
+## 二、数据模型(migration 008)
 
-## 三、WF-01 会议转任务
-
-该流程是整个运营系统的高频入口。每次会议结束后，无论来源是录音、会议文档还是聊天整理，都应该进入统一清洗流程，避免关键信息停留在自然语言层面。
-
-### 流程说明
-
-| 步骤 | 动作 | 输出 |
-| --- | --- | --- |
-| 1 | 接收会议内容 | 原始文本 / 转写文本 |
-| 2 | 抽取主题、决策、问题、待确认项 | 结构化摘要 |
-| 3 | 标记责任人、截止时间、优先级 | 行动项列表 |
-| 4 | 与现有任务去重比对 | 候选任务 |
-| 5 | 人工确认 | 通过或修改 |
-| 6 | 正式写入 `meetings` / `meeting_action_items` / `tasks` | 持久化记录 |
-| 7 | 通知相关人 | Telegram / 面板提醒 |
-
-### 关键规则
-
-会议中提到但未明确达成决策的内容，必须标记为“待确认项”，不能自动转为正式任务。若责任人不明确，则先落为“未分配”并进入人工处理队列。
-
-## 四、WF-02 GitHub 变更同步
-
-代码变更是项目状态的重要事实源，但它不应直接被视为“任务完成”。该流程的目标，是把 GitHub 的提交、PR、Issue 和任务系统之间建立关联，而不是用代码平台替代项目管理。
-
-| 步骤 | 动作 | 输出 |
-| --- | --- | --- |
-| 1 | 接收 GitHub Webhook 或定时拉取 | 原始事件 |
-| 2 | 识别项目、分支、PR、Issue 关联 | 项目映射 |
-| 3 | 判断是否命中内部任务编号 | 任务候选关联 |
-| 4 | 更新任务状态建议 | `doing` / `review` / `done` 候选 |
-| 5 | 记录项目动态 | 项目时间线条目 |
-| 6 | 推送摘要到项目控制面板 | 可读更新 |
-
-### 关键规则
-
-只有满足明确规则，例如 PR 合并且通过验证，才可以建议把任务从 `review` 进入 `done`。若只是 commit 或草稿 PR，默认只更新“开发中”状态。
-
-## 五、WF-03 财务流水入账与 U 折算
-
-财务工作流的重点在于“统一比较”。无论收入和支出来自 USDT、USDC、USD、MYR 还是 CNY，系统都应使用统一折算规则写入 `amount_u` 字段，并保留原币种、原始金额和汇率来源，确保可追溯。
-
-| 步骤 | 动作 | 输出 |
-| --- | --- | --- |
-| 1 | 接收流水 | 原始金额与币种 |
-| 2 | 分类识别 | 收入 / 支出 / 转账 |
-| 3 | 获取或确认折算汇率 | `rate_to_u` |
-| 4 | 计算 `amount_u` | 统一金额 |
-| 5 | 关联项目或公司级成本 | 归属信息 |
-| 6 | 人工复核异常项 | 标记复核 |
-| 7 | 写入 `finance_ledger` | 正式入账 |
-
-### 关键规则
-
-大额流水、重复流水、汇率偏差过大和没有凭证的支出，必须进入人工复核。所有订阅类月费应尽量通过 `subscriptions` 同步到 `finance_ledger`，避免重复录入。
-
-## 六、WF-04 资产与订阅风险提醒
-
-这个流程用于追踪那些通常最容易被忽略、但一旦出问题就直接影响交付的项目，例如域名过期、服务器欠费、站点证书问题、部署失败或数据库备份缺失。
-
-| 步骤 | 动作 | 输出 |
-| --- | --- | --- |
-| 1 | 读取资产与订阅状态 | 当前资产快照 |
-| 2 | 检查续费日、异常状态、告警事件 | 风险候选 |
-| 3 | 按严重性排序 | 严重 / 重要 / 普通 |
-| 4 | 生成处理建议 | 待办与说明 |
-| 5 | 通知对应责任人 | Telegram / 面板 |
-| 6 | 若逾期未处理则升级 | 升级提醒 |
-
-### 关键规则
-
-如果资产属于客户，应在提醒中明确归属、影响范围和谁有权限处理。系统可以建议动作，但不应默认替用户改生产配置。
-
-## 七、WF-05 新人 15 天培训流程
-
-该流程是你后续扩张团队的关键。它不能只是一个文档包，而必须具备每日推进、阶段检查和实际任务结合能力。新人要在 15 天内完成从环境安装到简单任务交付的过渡。
-
-| 阶段 | 时间 | 目标 |
-| --- | --- | --- |
-| 第 1 阶段 | Day 1-3 | 完成账号注册、工具安装、基础访问配置 |
-| 第 2 阶段 | Day 4-7 | 学会 GitHub、SSH、部署与数据库连接 |
-| 第 3 阶段 | Day 8-11 | 能做简单代码修改与基础运维任务 |
-| 第 4 阶段 | Day 12-15 | 能独立完成小任务并输出交付记录 |
-
-### 流程说明
-
-| 步骤 | 动作 | 输出 |
-| --- | --- | --- |
-| 1 | 创建培训计划 | `onboarding_programs` |
-| 2 | 按天分发任务 | `onboarding_tasks` |
-| 3 | 收集完成证明 | 链接、截图、提交记录 |
-| 4 | Agent 进行初步打分 | 阶段评分建议 |
-| 5 | 主负责人复核 | 最终评分 |
-| 6 | 决定是否进入正式任务流 | 转正 / 继续训练 |
-
-## 八、WF-06 周报 / 日报汇总
-
-日报和周报不应靠人工从零写，而应由 Agent 聚合项目、任务、会议、财务和风险信息后输出结构化摘要，再由你进行最终确认或补充。
-
-| 步骤 | 动作 | 输出 |
-| --- | --- | --- |
-| 1 | 定时读取各模块数据 | 原始汇总 |
-| 2 | 聚合项目进度、风险、待办 | 摘要草稿 |
-| 3 | 区分内部版与客户版 | 双版本内容 |
-| 4 | 等待确认 | 人工编辑 |
-| 5 | 发送或归档 | 周报文档 / 消息 |
-
-## 九、WF-07 客户报价建议
-
-报价建议工作流不应直接输出一个绝对价格，而应结合项目复杂度、历史工时、外部成本、维护周期和风险系数，生成一个区间与解释。这样更符合现实，也方便你人工判断。
-
-| 输入维度 | 说明 |
+| 表 | 作用 |
 | --- | --- |
-| 功能范围 | 页面数、模块数、外部接口数量 |
-| 技术复杂度 | 数据库、认证、支付、第三方集成 |
-| 交付时间 | 是否紧急 |
-| 维护要求 | 上线后是否长期支持 |
-| 历史参考 | 类似项目的报价与实际投入 |
-| 额外风险 | 客户不确定性、变更频率、沟通成本 |
+| `workflows` | 工作流定义:slug、name、触发方式(manual/event/cron) |
+| `workflow_steps` | 节点定义:executor_kind、executor_ref、config、依赖、审批要求、通知目标 |
+| `workflow_runs` | 一次具体执行:project_id、client_id、input_payload、status |
+| `workflow_step_runs` | 每个节点在一次执行中的状态:pending/running/awaiting_approval/completed/failed/rejected/skipped |
+| `workflow_run_timeline`(视图) | superadmin 回放用的 join 视图 |
 
-### 输出内容
+### 节点类型(`executor_kind`)
 
-系统输出至少应包含：建议价格区间、建议结算币种、建议首付款比例、范围说明、超范围条款建议。
-
-## 十、WF-08 知识入库与检索增强
-
-知识工作流的目标，是把分散文档转成可检索知识，而不是做一个只会堆文件的资料夹。任何新增 SOP、会议纪要、项目规划、客户需求摘要或调研报告，都应在入库时完成摘要、标签和项目归属。
-
-| 步骤 | 动作 | 输出 |
+| kind | 含义 | 完成方式 |
 | --- | --- | --- |
-| 1 | 接收文档 | 原始文件 |
-| 2 | 提取摘要与标签 | 文档元数据 |
-| 3 | 写入存储与索引表 | `knowledge_documents` |
-| 4 | 推送到向量库 | 检索能力 |
-| 5 | 关联项目与主题 | 上下文可追踪 |
+| `human` | 真人操作(founder/member/trainee) | **等待** `/workflow-runs/:id/steps/:key/complete` 被调用 |
+| `agent` | 内部 OneAgents Agent(meeting_agent/project_ops_agent/...) | 调用后等 agent 产出结果,再 POST `/complete` |
+| `ai_platform` | 直接通过 AI Gateway 调 OpenAI/Claude/Gemini | 自动执行,产出 content 字段 |
+| `tool` | Worker 内部工具 | 自动执行,见下表 |
+| `webhook` | 调外部 HTTP | 自动执行,HTTP 状态码决定成败 |
 
-## 十一、异常处理原则
+### 已实现的内置工具(`executor_kind=tool`)
 
-所有工作流都必须统一遵守异常处理原则。若输入不完整，则先标记为待补充而不是强行执行；若涉及客户、财务或生产环境，则结果默认进入人工确认；若外部平台失败，则应保留失败日志与重试标记，而不是静默丢失；若同一事件重复进入，则必须通过来源标识和时间戳去重。
+| `executor_ref` | 作用 | 配置字段 |
+| --- | --- | --- |
+| `telegram/send` | 发 Telegram 到 `TG_DEFAULT_CHAT_ID` | `template`(可用 `{field}` 占位符引用 run.input 或上游 output) |
+| `entities/projects` | 新建项目 | `from_input`:要从 run.input 取哪些字段 |
+| `onboarding/start` | 启动 15 天培训程序 | `from_input`:traineeEmail/mentorEmail/startDate/mentorSlug |
+| `onboarding/today` | 占位,提示 trainee 自己取 | (无) |
+
+### 审批
+
+- `workflow_steps.requires_approval = true` 的节点在**执行后**进入 `awaiting_approval`
+- Superadmin 通过 `POST /workflow-runs/:id/steps/:key/approve` 或 Telegram `/approve <step-run-id>` 推进
+- 拒绝走 `/reject`,整个 run 标 failed
+
+### 通知
+
+节点 `notification_targets`(jsonb)支持:
+- `{"telegram": true}` — 发到 `TG_DEFAULT_CHAT_ID`
+- `{"roles":["founder"]}` — 后续可做按角色分发(现在先 log)
+
+## 三、路由清单
+
+| 方法 | 路径 | 说明 | 鉴权 |
+| --- | --- | --- | --- |
+| GET | `/workflows` | 列出所有工作流 | 无 |
+| POST | `/workflows/:slug/trigger` | 触发一次执行 | Bearer |
+| GET | `/workflow-runs/:id` | 返回 timeline 视图 | 无 |
+| POST | `/workflow-runs/:id/steps/:key/complete` | 节点外部完成回写 | Bearer |
+| POST | `/workflow-runs/:id/steps/:key/approve` | 人工批准 | Bearer |
+| POST | `/workflow-runs/:id/steps/:key/reject` | 人工拒绝 | Bearer |
+
+Telegram 命令:
+- `/approve <step-run-id>`
+- `/reject <step-run-id> <reason>`
+
+## 四、内置工作流样例
+
+### WF: `employee-first-day`(新员工 Day 0)
+
+```
+confirm_gw_seat (human/founder)
+  → confirm_gh_invite (human/founder)
+    → start_onboarding (tool: onboarding/start, from_input=traineeEmail/mentorEmail/startDate/mentorSlug)
+      → generate_brief (tool: onboarding/today)
+        → welcome_notify (tool: telegram/send, template="@{trainee_name} 欢迎...")
+```
+
+trigger 时传 `input` 字段:
+```json
+{
+  "traineeEmail": "ming@company.com",
+  "mentorEmail": "you@company.com",
+  "startDate": "2026-04-22",
+  "mentorSlug": "nina_coach"
+}
+```
+
+### WF: `new-client-intake`(新客户接入)
+
+```
+intake_call (human)
+  → summarize_intake (agent: meeting_agent)
+    → scope_review (human, requires_approval=true)
+      → create_project (tool: entities/projects)
+        → initial_tasks (agent: project_ops_agent, requires_approval=true)
+          → handoff (tool: telegram/send)
+```
+
+## 五、记忆与连接器(设计位)
+
+当前节点已声明字段,但**运行时未强制装载**,下一版会实现:
+
+- `memory_namespace` — 指定该节点可访问的 `knowledge_documents.vector_namespace`;agent/ai_platform 类节点调 LLM 前自动 RAG 检索并拼进 system prompt
+- `connector_slugs` — 指定该节点需要哪些 `connectors`(GitHub / Google / 客户自己的 Supabase);Worker 按 `connectors.secret_ref` 去 env 拿对应 secret
+- `project_scope` / `client_scope` — 若为 `same` 或 `specific`,限制只能访问该 project/client 的数据(未来接入 RLS policy)
+
+## 六、旧 WF 编号对照(v0.1 → v0.2)
+
+v0.1 的 8 个 WF 现在是**工作流样例**,不是硬编码的 handler。通过 `workflows` + `workflow_steps` 表来定义,随时可以新增 / 改步骤而不用改代码:
+
+| 旧编号 | 旧名称 | 实现形式 |
+| --- | --- | --- |
+| WF-01 | 会议转任务 | 当前独立 `/workflows/meeting` 路由 + 可封装为 workflow steps |
+| WF-02 | GitHub 变更同步 | `/webhooks/github` 审计;可封装 workflow 做更精细动作 |
+| WF-03 | 财务流水入账 | 独立 `/workflows/finance` 路由 |
+| WF-04 | 资产订阅风险提醒 | 已在 cron 里跑 + `/cron/run` |
+| WF-05 | 新人培训 | 扩展成专门的 `/onboarding/*` 路由 + `employee-first-day` workflow |
+| WF-06 | 日报周报汇总 | 未实现,可作为新 workflow 节点(executor_kind=ai_platform) |
+| WF-07 | 客户报价建议 | 未实现,可作为新 workflow 节点 |
+| WF-08 | 知识入库 | `/workflows/knowledge` + `/admin/knowledge/research` + auto embed |
+
+## 七、怎么加新工作流
+
+直接 SQL 插入,不用改 Worker 代码:
+
+```sql
+insert into workflows (slug, name, trigger_kind) values ('weekly-report', '周报汇总', 'cron');
+
+with wf as (select id from workflows where slug='weekly-report')
+insert into workflow_steps (workflow_id, step_index, step_key, name, executor_kind, executor_ref, executor_config, depends_on, on_success_step_key, notification_targets)
+select wf.id, 1, 'collect_runs', '拉取本周 agent_runs',
+  'ai_platform', null,
+  '{"system_prompt":"你是周报助手...", "user_prompt":"总结以下数据: {input}"}'::jsonb,
+  ARRAY[]::text[], 'send_report',
+  '{"telegram":true}'::jsonb
+from wf;
+
+with wf as (select id from workflows where slug='weekly-report')
+insert into workflow_steps (workflow_id, step_index, step_key, name, executor_kind, executor_ref, executor_config, depends_on, notification_targets)
+select wf.id, 2, 'send_report', '发周报',
+  'tool', 'telegram/send',
+  '{"template":"本周:{content}"}'::jsonb,
+  ARRAY['collect_runs']::text[],
+  '{"telegram":true}'::jsonb
+from wf;
+```
+
+然后 `POST /workflows/weekly-report/trigger` 即可。
+
+## 八、冒烟测试结果(v0.2 上线)
+
+- `employee-first-day` 触发成功
+- 2 个 human 步手动 /complete 后,级联 3 个 tool 步自动执行完成
+- `workflow_runs.status` 从 `active` → `completed`
+- `workflow_run_timeline` 视图能完整回放
+
+## 九、下一步扩展(优先级)
+
+1. **memory_namespace 实装** — agent/ai_platform 节点自动 RAG
+2. **connector_slugs 实装** — 节点按需读取外部系统凭据
+3. **cron trigger** — `trigger_kind='cron'` + `trigger_config.schedule` 由 Worker 定时触发
+4. **event trigger** — GitHub push / 会议入库等事件自动触发关联 workflow
+5. **parallel branches** — 目前只线性;需要时加 `on_success_step_key` 数组
+6. **Retool 审批面板** — 查 `workflow_step_runs where status='awaiting_approval'`
